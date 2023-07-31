@@ -4,7 +4,7 @@ Employee Directory
 {{ end }}
 {{ define "body" }}
 <form method="POST" enctype="multipart/form-data" action="{{ .url_save }}">
-    {{ .csrfField }}
+    <input type="hidden" name="gorilla.csrf.Token" value="{{ .csrf_token }}">
     <input type="hidden" name="{{ .form.EmployeeId.Name }}" value="{{ .form.EmployeeId.ToString }}" />
     <div class="row">
         <div class="col-md-4">

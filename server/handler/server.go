@@ -21,19 +21,23 @@ type Server struct {
 func NewServer() (*Server, error) {
 	server := new(Server)
 	if utils.DYNAMO_MODE != "" {
-		server.store = store.NewDatabaseDynamo()
+		server.store = store.NewDynamoStore()
 	} else {
-		server.store = store.NewDatabase()
+		server.store = store.NewInMemoryStore()
 	}
 
 	router := mux.NewRouter()
 	router.HandleFunc("/", server.home).Methods("GET")
 	router.HandleFunc("/add", server.add).Methods("GET")
+	router.HandleFunc("/edit/{employeeId}", server.edit).Methods("GET")
 	router.HandleFunc("/save", server.save).Methods("POST")
 	router.HandleFunc("/employee/{employeeId}", server.view).Methods("GET")
 	router.HandleFunc("/delete/{employeeId}", server.delete).Methods("GET")
 
-	server.Handler = csrf.Protect([]byte(utils.CSRF_SECRET))(router)
+	server.Handler = csrf.Protect(
+		[]byte(utils.CSRF_SECRET),
+		csrf.Path("/"),
+	)(router)
 
 	server.maxBytesReader = 1<<20 + 1024
 
@@ -136,10 +140,52 @@ func (server *Server) add(w http.ResponseWriter, r *http.Request) {
 	t, err := template.ParseFiles("./static/templates/view-edit.html", "./static/templates/main.html")
 	if err == nil {
 		err = t.Execute(w, map[string]interface{}{
-			"form":           model.NewForm(),
-			"badges":         model.Badges,
-			"url_save":       urlFor(r.Host, "/save"),
-			csrf.TemplateTag: csrf.TemplateField(r),
+			"form":       model.NewForm(),
+			"badges":     model.Badges,
+			"url_save":   urlFor(r.Host, "/save"),
+			"csrf_token": csrf.Token(r),
+		})
+		if err != nil {
+			fmt.Fprintf(w, "error to execute template: %+v\n", err)
+		}
+	}
+}
+
+func (server *Server) edit(w http.ResponseWriter, r *http.Request) {
+	params := mux.Vars(r)
+
+	//s3_client = boto3.client('s3')
+	employee := server.store.LoadEmployee(params["employeeId"])
+	signedUrl := ""
+	if employee == nil {
+		fmt.Fprintf(w, "employee not found")
+		return
+	}
+
+	if employee.Photo.ObjectKey != "" {
+		/*signed_url = s3_client.generate_presigned_url(
+		    'get_object',
+		    Params={'Bucket': config.PHOTOS_BUCKET, 'Key': employee["object_key"]}
+		)*/
+	}
+
+	form := model.NewForm()
+	form.EmployeeId.Data = employee.Id
+	form.FullName.Data = employee.FullName
+	form.Location.Data = employee.Location
+	form.JobTitle.Data = employee.JobTitle
+	if len(employee.Badges) > 0 {
+		form.Badges.Data = employee.Badges
+	}
+
+	t, err := template.ParseFiles("./static/templates/view-edit.html", "./static/templates/main.html")
+	if err == nil {
+		err = t.Execute(w, map[string]interface{}{
+			"form":       form,
+			"badges":     model.Badges,
+			"url_save":   urlFor(r.Host, "/save"),
+			"signed_url": signedUrl,
+			"csrf_token": csrf.Token(r),
 		})
 		if err != nil {
 			fmt.Fprintf(w, "error to execute template: %+v\n", err)

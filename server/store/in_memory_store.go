@@ -6,21 +6,21 @@ import (
 	"github.com/moura1001/aws-employee-directory-application/server/model"
 )
 
-type Database struct {
+type InMemoryStore struct {
 	employees []*model.Employee
 }
 
-func NewDatabase() *Database {
-	return &Database{
+func NewInMemoryStore() *InMemoryStore {
+	return &InMemoryStore{
 		employees: []*model.Employee{},
 	}
 }
 
-func (db *Database) ListEmployees() []*model.Employee {
+func (db *InMemoryStore) ListEmployees() []*model.Employee {
 	return db.employees
 }
 
-func (db *Database) LoadEmployee(employeeId string) *model.Employee {
+func (db *InMemoryStore) LoadEmployee(employeeId string) *model.Employee {
 	for _, e := range db.employees {
 		if e.Id == employeeId {
 			return e
@@ -29,7 +29,7 @@ func (db *Database) LoadEmployee(employeeId string) *model.Employee {
 	return nil
 }
 
-func (db *Database) AddEmployee(objectKey, fullName, location, jobTitle string, badges []string) error {
+func (db *InMemoryStore) AddEmployee(objectKey, fullName, location, jobTitle string, badges []string) error {
 	id := strconv.Itoa(len(db.employees))
 	db.employees = append(db.employees, &model.Employee{
 		Id: id,
@@ -44,7 +44,7 @@ func (db *Database) AddEmployee(objectKey, fullName, location, jobTitle string, 
 	return nil
 }
 
-func (db *Database) UpdateEmployee(employeeId string, objectKey, fullName, location, jobTitle string, badges []string) {
+func (db *InMemoryStore) UpdateEmployee(employeeId string, objectKey, fullName, location, jobTitle string, badges []string) {
 	var employee *model.Employee = nil
 	for _, e := range db.employees {
 		if e.Id == employeeId {
@@ -61,7 +61,7 @@ func (db *Database) UpdateEmployee(employeeId string, objectKey, fullName, locat
 	}
 }
 
-func (db *Database) DeleteEmployee(employeeId string) {
+func (db *InMemoryStore) DeleteEmployee(employeeId string) {
 	for i, e := range db.employees {
 		if e.Id == employeeId {
 			db.employees = append(db.employees[:i], db.employees[i+1:]...)
