@@ -16,17 +16,17 @@ func NewInMemoryStore() *InMemoryStore {
 	}
 }
 
-func (db *InMemoryStore) ListEmployees() []*model.Employee {
-	return db.employees
+func (db *InMemoryStore) ListEmployees() ([]*model.Employee, error) {
+	return db.employees, nil
 }
 
-func (db *InMemoryStore) LoadEmployee(employeeId string) *model.Employee {
+func (db *InMemoryStore) LoadEmployee(employeeId string) (*model.Employee, error) {
 	for _, e := range db.employees {
 		if e.Id == employeeId {
-			return e
+			return e, nil
 		}
 	}
-	return nil
+	return nil, nil
 }
 
 func (db *InMemoryStore) AddEmployee(objectKey, fullName, location, jobTitle string, badges []string) error {
@@ -44,7 +44,7 @@ func (db *InMemoryStore) AddEmployee(objectKey, fullName, location, jobTitle str
 	return nil
 }
 
-func (db *InMemoryStore) UpdateEmployee(employeeId string, objectKey, fullName, location, jobTitle string, badges []string) {
+func (db *InMemoryStore) UpdateEmployee(employeeId string, objectKey, fullName, location, jobTitle string, badges []string) error {
 	var employee *model.Employee = nil
 	for _, e := range db.employees {
 		if e.Id == employeeId {
@@ -59,13 +59,17 @@ func (db *InMemoryStore) UpdateEmployee(employeeId string, objectKey, fullName, 
 		employee.JobTitle = jobTitle
 		employee.Badges = badges
 	}
+
+	return nil
 }
 
-func (db *InMemoryStore) DeleteEmployee(employeeId string) {
+func (db *InMemoryStore) DeleteEmployee(employeeId string) error {
 	for i, e := range db.employees {
 		if e.Id == employeeId {
 			db.employees = append(db.employees[:i], db.employees[i+1:]...)
-			return
+			return nil
 		}
 	}
+
+	return nil
 }

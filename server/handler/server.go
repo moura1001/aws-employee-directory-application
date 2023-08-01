@@ -23,7 +23,7 @@ func NewServer() (*Server, error) {
 	if utils.DYNAMO_MODE != "" {
 		server.store = store.NewDynamoStore()
 	} else {
-		server.store = store.NewInMemoryStore()
+		server.store = store.NewMysqlStore()
 	}
 
 	router := mux.NewRouter()
@@ -50,7 +50,12 @@ func urlFor(host string, endpoint string) string {
 
 func (server *Server) home(w http.ResponseWriter, r *http.Request) {
 	//s3_client = boto3.client('s3')
-	employees := server.store.ListEmployees()
+	employees, err := server.store.ListEmployees()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
 	if len(employees) == 0 {
 		url := urlFor(r.Host, "/add")
 		templateStr := fmt.Sprintf(`
@@ -124,7 +129,7 @@ func (server *Server) home(w http.ResponseWriter, r *http.Request) {
 	`, urlAdd, urlDelete, urlView)
 
 	t, _ := template.New("home").Parse(templateStr)
-	t, err := t.ParseFiles("./static/templates/main.html")
+	t, err = t.ParseFiles("./static/templates/main.html")
 	if err == nil {
 		err = t.Execute(w, map[string]interface{}{
 			"employees": employees,
@@ -155,10 +160,15 @@ func (server *Server) edit(w http.ResponseWriter, r *http.Request) {
 	params := mux.Vars(r)
 
 	//s3_client = boto3.client('s3')
-	employee := server.store.LoadEmployee(params["employeeId"])
+	employee, err := server.store.LoadEmployee(params["employeeId"])
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
 	signedUrl := ""
 	if employee == nil {
-		fmt.Fprintf(w, "employee not found")
+		http.Error(w, "employee not found", http.StatusNotFound)
 		return
 	}
 
@@ -215,7 +225,7 @@ func (server *Server) save(w http.ResponseWriter, r *http.Request) {
 		badges := form.Badges.Data.([]string)
 
 		if employeeId != "" {
-			server.store.UpdateEmployee(
+			err = server.store.UpdateEmployee(
 				employeeId,
 				key,
 				fullName,
@@ -224,13 +234,18 @@ func (server *Server) save(w http.ResponseWriter, r *http.Request) {
 				badges,
 			)
 		} else {
-			server.store.AddEmployee(
+			err = server.store.AddEmployee(
 				key,
 				fullName,
 				location,
 				jobTitle,
 				badges,
 			)
+		}
+
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
 		//flash("Saved!")
 		//return redirect(url_for("home"))
@@ -266,9 +281,12 @@ func (server *Server) view(w http.ResponseWriter, r *http.Request) {
 	params := mux.Vars(r)
 
 	//s3_client = boto3.client('s3')
-	employee := server.store.LoadEmployee(params["employeeId"])
-	if employee == nil {
-		fmt.Fprintf(w, "employee not found")
+	employee, err := server.store.LoadEmployee(params["employeeId"])
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	} else if employee == nil {
+		http.Error(w, "employee not found", http.StatusNotFound)
 		return
 	}
 
@@ -326,7 +344,7 @@ func (server *Server) view(w http.ResponseWriter, r *http.Request) {
 		`, urlEdit, urlHome)
 
 	t, _ := template.New("view").Parse(templateStr)
-	t, err := t.ParseFiles("./static/templates/main.html")
+	t, err = t.ParseFiles("./static/templates/main.html")
 	if err == nil {
 		err = t.Execute(w, map[string]interface{}{
 			"form":     model.NewForm(),
@@ -341,7 +359,12 @@ func (server *Server) view(w http.ResponseWriter, r *http.Request) {
 
 func (server *Server) delete(w http.ResponseWriter, r *http.Request) {
 	params := mux.Vars(r)
-	server.store.DeleteEmployee(params["employeeId"])
+	err := server.store.DeleteEmployee(params["employeeId"])
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
 	//flash("Deleted!")
 	http.Redirect(w, r, urlFor(r.Host, "/"), http.StatusMovedPermanently)
 }
