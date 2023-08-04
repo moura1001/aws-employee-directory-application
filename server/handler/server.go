@@ -23,7 +23,7 @@ func NewServer() (*Server, error) {
 	if utils.DYNAMO_MODE != "" {
 		server.store = store.NewDynamoStore()
 	} else {
-		server.store = store.NewMysqlStore()
+		server.store = store.NewInMemoryStore()
 	}
 
 	router := mux.NewRouter()
@@ -37,6 +37,7 @@ func NewServer() (*Server, error) {
 	server.Handler = csrf.Protect(
 		[]byte(utils.CSRF_SECRET),
 		csrf.Path("/"),
+		csrf.Secure(false),
 	)(router)
 
 	server.maxBytesReader = 1<<20 + 1024

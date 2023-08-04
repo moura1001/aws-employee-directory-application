@@ -1,17 +1,17 @@
 package model
 
 type Employee struct {
-	Id       string
-	Photo    *Photo
-	FullName string
-	Location string
-	JobTitle string
-	Badges   []string
+	Id       string   `dynamodbav:"id"`
+	Photo    *Photo   `dynamodbav:"photo"`
+	FullName string   `dynamodbav:"full_name"`
+	Location string   `dynamodbav:"location"`
+	JobTitle string   `dynamodbav:"job_title"`
+	Badges   []string `dynamodbav:"badges"`
 }
 
 type Photo struct {
-	ObjectKey string
-	SignedUrl string
+	ObjectKey string `dynamodbav:"object_key"`
+	SignedUrl string `dynamodbav:"-"`
 }
 
 func (e Employee) HasBadge(badge string) bool {

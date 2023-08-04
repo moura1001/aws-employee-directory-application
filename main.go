@@ -23,6 +23,7 @@ func init() {
 	DATABASE_PASSWORD := os.Getenv("DATABASE_PASSWORD")
 	DATABASE_DB_NAME := os.Getenv("DATABASE_DB_NAME")
 	DYNAMO_MODE := os.Getenv("DYNAMO_MODE")
+	AWS_DEFAULT_REGION := os.Getenv("AWS_DEFAULT_REGION")
 
 	utils.PHOTOS_BUCKET = PHOTOS_BUCKET
 	utils.CSRF_SECRET = CSRF_SECRET
@@ -31,6 +32,7 @@ func init() {
 	utils.DATABASE_PASSWORD = DATABASE_PASSWORD
 	utils.DATABASE_DB_NAME = DATABASE_DB_NAME
 	utils.DYNAMO_MODE = DYNAMO_MODE
+	utils.AWS_DEFAULT_REGION = AWS_DEFAULT_REGION
 
 	/*utils.PHOTOS_BUCKET = os.Getenv("PHOTOS_BUCKET")
 	utils.CSRF_SECRET = os.Getenv("CSRF_SECRET")
@@ -44,14 +46,14 @@ func init() {
 }
 
 func main() {
-	log.Println("Attempting to start server on port 5000...")
+	log.Println("Attempting to start server on port 80...")
 
 	server, err := server.NewServer()
 	if err != nil {
 		log.Fatalf("server startup error: %v", err)
 	}
 
-	if err := http.ListenAndServe(":5000", server); err != nil {
-		log.Fatalf("could not listen on port 5000: %v", err)
+	if err := http.ListenAndServe(":80", server); err != nil {
+		log.Fatalf("could not listen on port 80: %v", err)
 	}
 }

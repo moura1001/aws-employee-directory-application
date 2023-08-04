@@ -9,3 +9,5 @@ var DATABASE_PASSWORD = ""
 var DATABASE_DB_NAME = ""
 
 var DYNAMO_MODE = ""
+
+var AWS_DEFAULT_REGION = ""
