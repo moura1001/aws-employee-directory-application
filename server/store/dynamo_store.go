@@ -84,12 +84,12 @@ func (db *DynamoStore) LoadEmployee(employeeId string) (*model.Employee, error) 
 	return emp, nil
 }
 
-func (db *DynamoStore) AddEmployee(objectKey, fullName, location, jobTitle string, badges []string) error {
+func (db *DynamoStore) AddEmployee(objectKey, fullName, location, jobTitle string, badges []string) (string, error) {
 	errMsg := "error to insert employee data%s. Details: '%s'"
 
 	svc, err := db.getDynamoClient()
 	if err != nil {
-		return fmt.Errorf(errMsg, "", err)
+		return "", fmt.Errorf(errMsg, "", err)
 	}
 
 	emp := &model.Employee{
@@ -105,7 +105,7 @@ func (db *DynamoStore) AddEmployee(objectKey, fullName, location, jobTitle strin
 
 	empItem, err := attributevalue.MarshalMap(emp)
 	if err != nil {
-		return fmt.Errorf(errMsg, " MarshalMap", err)
+		return "", fmt.Errorf(errMsg, " MarshalMap", err)
 	}
 
 	_, err = svc.PutItem(context.TODO(), &dynamodb.PutItemInput{
@@ -113,10 +113,10 @@ func (db *DynamoStore) AddEmployee(objectKey, fullName, location, jobTitle strin
 		Item:      empItem,
 	})
 	if err != nil {
-		return fmt.Errorf(errMsg, " PutItem", err)
+		return "", fmt.Errorf(errMsg, " PutItem", err)
 	}
 
-	return nil
+	return emp.Id, nil
 }
 
 func (db *DynamoStore) UpdateEmployee(employeeId, objectKey, fullName, location, jobTitle string, badges []string) error {
@@ -147,6 +147,7 @@ func (db *DynamoStore) UpdateEmployee(employeeId, objectKey, fullName, location,
 		ExpressionAttributeNames:  expr.Names(),
 		ExpressionAttributeValues: expr.Values(),
 		UpdateExpression:          expr.Update(),
+		ConditionExpression:       aws.String("attribute_exists(id)"),
 	})
 	if err != nil {
 		return fmt.Errorf(errMsg, " UpdateItem", err)

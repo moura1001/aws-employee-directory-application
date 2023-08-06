@@ -1,6 +1,7 @@
 package store
 
 import (
+	"fmt"
 	"strconv"
 
 	"github.com/moura1001/aws-employee-directory-application/server/model"
@@ -29,7 +30,7 @@ func (db *InMemoryStore) LoadEmployee(employeeId string) (*model.Employee, error
 	return nil, nil
 }
 
-func (db *InMemoryStore) AddEmployee(objectKey, fullName, location, jobTitle string, badges []string) error {
+func (db *InMemoryStore) AddEmployee(objectKey, fullName, location, jobTitle string, badges []string) (string, error) {
 	id := strconv.Itoa(len(db.employees))
 	db.employees = append(db.employees, &model.Employee{
 		Id: id,
@@ -41,7 +42,7 @@ func (db *InMemoryStore) AddEmployee(objectKey, fullName, location, jobTitle str
 		JobTitle: jobTitle,
 		Badges:   badges,
 	})
-	return nil
+	return id, nil
 }
 
 func (db *InMemoryStore) UpdateEmployee(employeeId string, objectKey, fullName, location, jobTitle string, badges []string) error {
@@ -58,9 +59,11 @@ func (db *InMemoryStore) UpdateEmployee(employeeId string, objectKey, fullName, 
 		employee.Location = location
 		employee.JobTitle = jobTitle
 		employee.Badges = badges
+
+		return nil
 	}
 
-	return nil
+	return fmt.Errorf("employee '%s' does not exist", employeeId)
 }
 
 func (db *InMemoryStore) DeleteEmployee(employeeId string) error {

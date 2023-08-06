@@ -2,7 +2,9 @@ package model
 
 import (
 	"fmt"
+	"io/ioutil"
 	"mime/multipart"
+	"net/http"
 	"regexp"
 	"strings"
 )
@@ -26,7 +28,7 @@ type Field struct {
 func NewForm() Form {
 	return Form{
 		EmployeeId: Field{IsRequired: false, Name: "employee_id"},
-		Photo:      Field{IsRequired: false, Name: "photo"},
+		Photo:      Field{IsRequired: false, Name: "photo", Label: "Picture"},
 		FullName:   Field{IsRequired: true, Name: "full_name", Label: "Full Name"},
 		Location:   Field{IsRequired: true, Name: "location", Label: "Location"},
 		JobTitle:   Field{IsRequired: true, Name: "job_title", Label: "Job Title"},
@@ -95,6 +97,29 @@ func (f *Form) ValidateOnSubmit(form *multipart.Form) error {
 		}
 	}
 	f.Badges.Data = badges
+
+	if len(form.File[f.Photo.Name]) > 0 {
+		file := form.File[f.Photo.Name][0]
+		if file != nil {
+			content, err := file.Open()
+			if err != nil {
+				return fmt.Errorf("error to open '%s' field", f.Photo.Label)
+			}
+			defer content.Close()
+
+			fi, err := ioutil.ReadAll(content)
+			if err != nil {
+				return fmt.Errorf("error to read '%s' field data", f.Photo.Label)
+			}
+
+			fiType := http.DetectContentType(fi)
+			if strings.HasPrefix(fiType, "image") {
+				f.Photo.Data = fi
+			} else {
+				return fmt.Errorf("'%s' field file must be a valid image", f.Photo.Label)
+			}
+		}
+	}
 
 	return nil
 }

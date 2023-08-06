@@ -13,18 +13,21 @@ import (
 )
 
 type Server struct {
-	store store.EmployeeStore
+	store    store.EmployeeStore
+	s3Client store.S3Store
 	http.Handler
 	maxBytesReader int64
 }
 
 func NewServer() (*Server, error) {
 	server := new(Server)
-	if utils.DYNAMO_MODE != "" {
+	if utils.DYNAMO_MODE == "on" {
 		server.store = store.NewDynamoStore()
 	} else {
-		server.store = store.NewInMemoryStore()
+		server.store = store.NewMysqlStore()
 	}
+
+	server.s3Client = store.NewS3Store()
 
 	router := mux.NewRouter()
 	router.HandleFunc("/", server.home).Methods("GET")
@@ -50,7 +53,7 @@ func urlFor(host string, endpoint string) string {
 }
 
 func (server *Server) home(w http.ResponseWriter, r *http.Request) {
-	//s3_client = boto3.client('s3')
+
 	employees, err := server.store.ListEmployees()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -80,10 +83,12 @@ func (server *Server) home(w http.ResponseWriter, r *http.Request) {
 	} else {
 		for _, employee := range employees {
 			if employee.Photo.ObjectKey != "" {
-				/*employee.Photo.SignedUrl = s3_client.generate_presigned_url(
-				    'get_object',
-				    Params={'Bucket': config.PHOTOS_BUCKET, 'Key': employee["object_key"]}
-				)*/
+				url, err := server.s3Client.GeneratePresignedURL(employee.Photo.ObjectKey)
+				if err == nil {
+					employee.Photo.SignedUrl = url
+				} else {
+					employee.Photo.SignedUrl = err.Error()
+				}
 			}
 		}
 	}
@@ -160,7 +165,6 @@ func (server *Server) add(w http.ResponseWriter, r *http.Request) {
 func (server *Server) edit(w http.ResponseWriter, r *http.Request) {
 	params := mux.Vars(r)
 
-	//s3_client = boto3.client('s3')
 	employee, err := server.store.LoadEmployee(params["employeeId"])
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -174,10 +178,12 @@ func (server *Server) edit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if employee.Photo.ObjectKey != "" {
-		/*signed_url = s3_client.generate_presigned_url(
-		    'get_object',
-		    Params={'Bucket': config.PHOTOS_BUCKET, 'Key': employee["object_key"]}
-		)*/
+		url, err := server.s3Client.GeneratePresignedURL(employee.Photo.ObjectKey)
+		if err == nil {
+			signedUrl = url
+		} else {
+			signedUrl = err.Error()
+		}
 	}
 
 	form := model.NewForm()
@@ -219,13 +225,46 @@ func (server *Server) save(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 
 		employeeId := form.EmployeeId.Data.(string)
-		key := ""
 		fullName := form.FullName.Data.(string)
 		location := form.Location.Data.(string)
 		jobTitle := form.JobTitle.Data.(string)
 		badges := form.Badges.Data.([]string)
 
+		if employeeId == "" {
+			employeeId, err = server.store.AddEmployee(
+				"",
+				fullName,
+				location,
+				jobTitle,
+				badges,
+			)
+		}
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		//flash("Saved!")
+		//return redirect(url_for("home"))
+
 		if employeeId != "" {
+			key := ""
+			if form.Photo.Data != nil {
+				imageBytes, err := utils.ResizeImage(form.Photo.Data.([]byte), 120, 160)
+				if err != nil {
+					http.Error(w, fmt.Errorf("error to resize image: %v", err).Error(), http.StatusInternalServerError)
+					return
+				}
+
+				// save the image to s3
+				prefix := "employee_pic/"
+				key = prefix + employeeId + ".png"
+				err = server.s3Client.UploadObject(key, imageBytes)
+				if err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+					return
+				}
+			}
+
 			err = server.store.UpdateEmployee(
 				employeeId,
 				key,
@@ -234,54 +273,21 @@ func (server *Server) save(w http.ResponseWriter, r *http.Request) {
 				jobTitle,
 				badges,
 			)
-		} else {
-			err = server.store.AddEmployee(
-				key,
-				fullName,
-				location,
-				jobTitle,
-				badges,
-			)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
 		}
-
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		//flash("Saved!")
-		//return redirect(url_for("home"))
 
 		http.Redirect(w, r, urlFor(r.Host, "/"), http.StatusMovedPermanently)
 	} else {
 		http.Error(w, fmt.Errorf("form failed validate: %v", err).Error(), http.StatusBadRequest)
 	}
-
-	/*"Save an employee"
-	  form = EmployeeForm()
-	  s3_client = boto3.client('s3')
-	  key = None
-	  if form.validate_on_submit():
-	      if form.photo.data:
-	          image_bytes = util.resize_image(form.photo.data, (120, 160))
-	          if image_bytes:
-	              try:
-	                  # save the image to s3
-	                  prefix = "employee_pic/"
-	                  key = prefix + util.random_hex_bytes(8) + '.png'
-	                  s3_client.put_object(
-	                      Bucket=config.PHOTOS_BUCKET,
-	                      Key=key,
-	                      Body=image_bytes,
-	                      ContentType='image/png'
-	                  )
-	              except:
-	                  pass*/
 }
 
 func (server *Server) view(w http.ResponseWriter, r *http.Request) {
 	params := mux.Vars(r)
 
-	//s3_client = boto3.client('s3')
 	employee, err := server.store.LoadEmployee(params["employeeId"])
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -292,10 +298,12 @@ func (server *Server) view(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if employee.Photo.ObjectKey != "" {
-		/*employee["signed_url"] = s3_client.generate_presigned_url(
-		    'get_object',
-		    Params={'Bucket': config.PHOTOS_BUCKET, 'Key': employee["object_key"]}
-		)*/
+		url, err := server.s3Client.GeneratePresignedURL(employee.Photo.ObjectKey)
+		if err == nil {
+			employee.Photo.SignedUrl = url
+		} else {
+			employee.Photo.SignedUrl = err.Error()
+		}
 	}
 
 	urlEdit := urlFor(r.Host, "/edit")

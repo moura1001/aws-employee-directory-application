@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -95,47 +96,59 @@ func (db *MysqlStore) LoadEmployee(employeeId string) (*model.Employee, error) {
 	}
 }
 
-func (db *MysqlStore) AddEmployee(objectKey, fullName, location, jobTitle string, badges []string) error {
+func (db *MysqlStore) AddEmployee(objectKey, fullName, location, jobTitle string, badges []string) (string, error) {
 	errMsg := "error to insert employee data. Details: '%s'"
 	conn, err := db.getDatabaseConnection()
 
 	if err == nil {
 		defer conn.Close()
 
-		insEmp, err := conn.Prepare("INSERT INTO employee(object_key, full_name, location, job_title, badges) VALUES(?,?,?,?,?)")
-		if err != nil {
-			return fmt.Errorf(errMsg, err)
-		}
-		defer insEmp.Close()
+		query := "INSERT INTO employee(object_key, full_name, location, job_title, badges) VALUES(?,?,?,?,?)"
 
 		b := strings.Join(badges, ",")
-		_, err = insEmp.Exec(objectKey, fullName, location, jobTitle, b)
+
+		_, err = conn.Exec(query, objectKey, fullName, location, jobTitle, b)
 		if err != nil {
-			return fmt.Errorf(errMsg, err)
+			return "", fmt.Errorf(errMsg, err)
 		}
 
-		return nil
+		var empId string
+		err = conn.QueryRow("SELECT LAST_INSERT_ID()").Scan(&empId)
+		if err != nil {
+			return "", fmt.Errorf(errMsg, fmt.Errorf("failed to get last inserted id: '%s'", err))
+		}
+
+		return empId, nil
 
 	} else {
-		return fmt.Errorf(errMsg, err)
+		return "", fmt.Errorf(errMsg, err)
 	}
 }
 
 func (db *MysqlStore) UpdateEmployee(employeeId string, objectKey, fullName, location, jobTitle string, badges []string) error {
 	errMsg := "error to update employee data. Details: '%s'"
+
+	empId, err := strconv.ParseInt(employeeId, 10, 32)
+	if err != nil {
+		return fmt.Errorf("employee '%s' does not exist", employeeId)
+	}
+
 	conn, err := db.getDatabaseConnection()
 
 	if err == nil {
 		defer conn.Close()
 
-		updEmp, err := conn.Prepare("UPDATE employee SET object_key=?, full_name=?, location=?, job_title=?, badges=? WHERE id=?")
+		query := "SELECT id FROM employee WHERE id=?"
+		err = conn.QueryRow(query, empId).Scan(&empId)
 		if err != nil {
 			return fmt.Errorf(errMsg, err)
 		}
-		defer updEmp.Close()
+
+		query = "UPDATE employee SET object_key=?, full_name=?, location=?, job_title=?, badges=? WHERE id=?"
 
 		b := strings.Join(badges, ",")
-		_, err = updEmp.Exec(objectKey, fullName, location, jobTitle, b, employeeId)
+
+		_, err = conn.Exec(query, objectKey, fullName, location, jobTitle, b, empId)
 		if err != nil {
 			return fmt.Errorf(errMsg, err)
 		}
