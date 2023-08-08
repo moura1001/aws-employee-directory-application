@@ -10,4 +10,5 @@ type EmployeeStore interface {
 	AddEmployee(objectKey, fullName, location, jobTitle string, badges []string) (string, error)
 	UpdateEmployee(employeeId string, objectKey, fullName, location, jobTitle string, badges []string) error
 	DeleteEmployee(employeeId string) error
+	IsHealthy() bool
 }

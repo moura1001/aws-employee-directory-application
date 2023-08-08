@@ -185,6 +185,19 @@ func (db *MysqlStore) DeleteEmployee(employeeId string) error {
 	}
 }
 
+func (db *MysqlStore) IsHealthy() bool {
+	conn, err := db.getDatabaseConnection()
+
+	if err == nil {
+		defer conn.Close()
+
+		return true
+
+	} else {
+		return false
+	}
+}
+
 func (db *MysqlStore) getDatabaseConnection() (*sql.DB, error) {
 	connectStr := fmt.Sprintf("%s:%s@(%s)/%s", utils.DATABASE_USER, utils.DATABASE_PASSWORD, utils.DATABASE_HOST, utils.DATABASE_DB_NAME)
 	conn, err := sql.Open("mysql", connectStr)

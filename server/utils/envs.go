@@ -2,6 +2,7 @@ package utils
 
 var PHOTOS_BUCKET = ""
 var CSRF_SECRET = ""
+var SESSION_KEY = ""
 
 var DATABASE_HOST = ""
 var DATABASE_USER = ""

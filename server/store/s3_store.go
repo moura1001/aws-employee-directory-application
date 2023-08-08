@@ -3,6 +3,7 @@ package store
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -10,6 +11,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/aws/smithy-go"
 	"github.com/moura1001/aws-employee-directory-application/server/utils"
 )
 
@@ -82,4 +85,35 @@ func (s S3Store) UploadObject(objectKey string, content []byte) error {
 	}
 
 	return nil
+}
+
+func (s S3Store) IsHealthy() bool {
+	svc, err := s.getS3Client()
+
+	if err != nil {
+		return false
+	} else {
+		_, err = svc.HeadObject(context.TODO(), &s3.HeadObjectInput{
+			Bucket: aws.String(s.bucket),
+			Key:    aws.String("unknow"),
+		})
+
+		if err != nil {
+
+			var nsk *types.NoSuchKey
+			if errors.As(err, &nsk) {
+				return true
+			}
+
+			var apiErr smithy.APIError
+			if errors.As(err, &apiErr) {
+				return true
+			}
+
+		} else {
+			return true
+		}
+	}
+
+	return false
 }

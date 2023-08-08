@@ -76,3 +76,7 @@ func (db *InMemoryStore) DeleteEmployee(employeeId string) error {
 
 	return nil
 }
+
+func (db *InMemoryStore) IsHealthy() bool {
+	return true
+}

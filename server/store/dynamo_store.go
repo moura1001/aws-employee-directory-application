@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
@@ -178,6 +179,18 @@ func (db *DynamoStore) DeleteEmployee(employeeId string) error {
 	}
 
 	return nil
+}
+
+func (db *DynamoStore) IsHealthy() bool {
+	_, err := db.LoadEmployee("unknow")
+	isNotFound := strings.Contains(err.Error(), "data not found")
+
+	if isNotFound {
+		return true
+
+	} else {
+		return false
+	}
 }
 
 func (db *DynamoStore) getDynamoClient() (*dynamodb.Client, error) {

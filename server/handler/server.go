@@ -1,12 +1,18 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"html/template"
+	"log"
 	"net/http"
+	"os/exec"
 
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/feature/ec2/imds"
 	"github.com/gorilla/csrf"
 	"github.com/gorilla/mux"
+	"github.com/gorilla/sessions"
 	"github.com/moura1001/aws-employee-directory-application/server/model"
 	"github.com/moura1001/aws-employee-directory-application/server/store"
 	"github.com/moura1001/aws-employee-directory-application/server/utils"
@@ -16,11 +22,27 @@ type Server struct {
 	store    store.EmployeeStore
 	s3Client store.S3Store
 	http.Handler
-	maxBytesReader int64
+	maxBytesReader   int64
+	availabilityZone string
+	instanceId       string
+	session          *sessions.CookieStore
+	sessionName      string
+	flashTemplate    string
 }
 
 func NewServer() (*Server, error) {
 	server := new(Server)
+
+	server.session = sessions.NewCookieStore([]byte(utils.SESSION_KEY))
+	server.sessionName = "employee-session"
+	server.flashTemplate = "flashed_messages"
+
+	if err := server.setInstanceDocumentInfo(); err != nil {
+		log.Printf(" * Instance metadata not available. Details: '%s'\n", err)
+		server.availabilityZone = "us-fake-1a"
+		server.instanceId = "i-fakeabc"
+	}
+
 	if utils.DYNAMO_MODE == "on" {
 		server.store = store.NewDynamoStore()
 	} else {
@@ -36,6 +58,9 @@ func NewServer() (*Server, error) {
 	router.HandleFunc("/save", server.save).Methods("POST")
 	router.HandleFunc("/employee/{employeeId}", server.view).Methods("GET")
 	router.HandleFunc("/delete/{employeeId}", server.delete).Methods("GET")
+	router.HandleFunc("/info", server.info).Methods("GET")
+	router.HandleFunc("/info/stress_cpu/{seconds}", server.stress).Methods("GET")
+	router.HandleFunc("/monitor", server.monitor).Methods("GET")
 
 	server.Handler = csrf.Protect(
 		[]byte(utils.CSRF_SECRET),
@@ -48,11 +73,39 @@ func NewServer() (*Server, error) {
 	return server, nil
 }
 
+func (server *Server) setInstanceDocumentInfo() error {
+	cfg, err := config.LoadDefaultConfig(context.TODO(), func(opts *config.LoadOptions) error {
+		opts.Region = utils.AWS_DEFAULT_REGION
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("error to load default config. Details: '%s'", err)
+	}
+
+	client := imds.NewFromConfig(cfg)
+
+	iido, err := client.GetInstanceIdentityDocument(context.TODO(), nil)
+	if err != nil {
+		return fmt.Errorf("error to get ec2 instance identity document. Details: '%s'", err)
+	}
+
+	server.availabilityZone = iido.AvailabilityZone
+	server.instanceId = iido.InstanceID
+
+	return nil
+}
+
 func urlFor(host string, endpoint string) string {
 	return "http://" + host + endpoint
 }
 
 func (server *Server) home(w http.ResponseWriter, r *http.Request) {
+	session, _ := server.session.Get(r, server.sessionName)
+	flashedMessages, _ := session.Values[server.flashTemplate].([]string)
+	if len(flashedMessages) > 0 {
+		session.Values[server.flashTemplate] = nil
+		session.Save(r, w)
+	}
 
 	employees, err := server.store.ListEmployees()
 	if err != nil {
@@ -74,7 +127,9 @@ func (server *Server) home(w http.ResponseWriter, r *http.Request) {
 		t, _ := template.New("home").Parse(templateStr)
 		t, err := t.ParseFiles("./static/templates/main.html")
 		if err == nil {
-			err = t.Execute(w, nil)
+			err = t.Execute(w, map[string]interface{}{
+				server.flashTemplate: flashedMessages,
+			})
 			if err != nil {
 				fmt.Fprintf(w, "error to execute template: %+v\n", err)
 			}
@@ -138,8 +193,9 @@ func (server *Server) home(w http.ResponseWriter, r *http.Request) {
 	t, err = t.ParseFiles("./static/templates/main.html")
 	if err == nil {
 		err = t.Execute(w, map[string]interface{}{
-			"employees": employees,
-			"badges":    model.Badges,
+			"employees":          employees,
+			"badges":             model.Badges,
+			server.flashTemplate: flashedMessages,
 		})
 		if err != nil {
 			fmt.Fprintf(w, "error to execute template: %+v\n", err)
@@ -211,6 +267,7 @@ func (server *Server) edit(w http.ResponseWriter, r *http.Request) {
 }
 
 func (server *Server) save(w http.ResponseWriter, r *http.Request) {
+	session, _ := server.session.Get(r, server.sessionName)
 
 	r.Body = http.MaxBytesReader(w, r.Body, server.maxBytesReader)
 	err := r.ParseMultipartForm(server.maxBytesReader)
@@ -243,8 +300,6 @@ func (server *Server) save(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
-		//flash("Saved!")
-		//return redirect(url_for("home"))
 
 		if employeeId != "" {
 			key := ""
@@ -278,6 +333,11 @@ func (server *Server) save(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
+
+		session.Values[server.flashTemplate] = []string{"Saved!"}
+		session.Save(r, w)
+		//flash("Saved!")
+		//return redirect(url_for("home"))
 
 		http.Redirect(w, r, urlFor(r.Host, "/"), http.StatusMovedPermanently)
 	} else {
@@ -367,6 +427,8 @@ func (server *Server) view(w http.ResponseWriter, r *http.Request) {
 }
 
 func (server *Server) delete(w http.ResponseWriter, r *http.Request) {
+	session, _ := server.session.Get(r, server.sessionName)
+
 	params := mux.Vars(r)
 	err := server.store.DeleteEmployee(params["employeeId"])
 	if err != nil {
@@ -374,6 +436,90 @@ func (server *Server) delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	session.Values[server.flashTemplate] = []string{"Deleted!"}
+	session.Save(r, w)
 	//flash("Deleted!")
+
 	http.Redirect(w, r, urlFor(r.Host, "/"), http.StatusMovedPermanently)
+}
+
+func (server *Server) info(w http.ResponseWriter, r *http.Request) {
+	session, _ := server.session.Get(r, server.sessionName)
+
+	urlStress60 := urlFor(r.Host, "/info/stress_cpu/60")
+	urlStress300 := urlFor(r.Host, "/info/stress_cpu/300")
+	urlStress600 := urlFor(r.Host, "/info/stress_cpu/600")
+
+	templateStr := fmt.Sprintf(`
+		{{ template "main" .}}
+		{{ define "head" }}
+			Instance Info
+		{{ end }}
+		{{ define "body" }}
+		<b>instance_id</b>: {{.g.instance_id}} <br/>
+		<b>availability_zone</b>: {{.g.availablity_zone}} <br/>
+		<hr/>
+		<small>Stress cpu:
+		<a href="%s">1 min</a>,
+		<a href="%s">5 min</a>,
+		<a href="%s">10 min</a>
+		</small>
+		{{ end }}
+	`, urlStress60, urlStress300, urlStress600)
+
+	t, _ := template.New("info").Parse(templateStr)
+	t, err := t.ParseFiles("./static/templates/main.html")
+	if err == nil {
+		flashedMessages, _ := session.Values[server.flashTemplate].([]string)
+		if len(flashedMessages) > 0 {
+			session.Values[server.flashTemplate] = nil
+			session.Save(r, w)
+		}
+
+		err = t.Execute(w, map[string]interface{}{
+			"g": map[string]string{
+				"instance_id":      server.instanceId,
+				"availablity_zone": server.availabilityZone,
+			},
+			server.flashTemplate: flashedMessages,
+		})
+		if err != nil {
+			fmt.Fprintf(w, "error to execute template: %+v\n", err)
+		}
+	}
+}
+
+func (server *Server) stress(w http.ResponseWriter, r *http.Request) {
+	session, _ := server.session.Get(r, server.sessionName)
+
+	params := mux.Vars(r)
+	if params["seconds"] == "60" || params["seconds"] == "300" || params["seconds"] == "600" {
+		err := exec.Command("stress", "--cpu", "8", "--timeout", params["seconds"]).Start()
+		if err != nil {
+			msgErr := fmt.Errorf("error to simulate cpu stress with param '%s'. Details: '%s'", params["seconds"], err).Error()
+			http.Error(w, msgErr, http.StatusInternalServerError)
+			return
+		}
+
+		session.Values[server.flashTemplate] = []string{"Stressing CPU"}
+		session.Save(r, w)
+		//flash("Stressing CPU")
+
+		http.Redirect(w, r, urlFor(r.Host, "/info"), http.StatusMovedPermanently)
+	}
+}
+
+func (server *Server) monitor(w http.ResponseWriter, r *http.Request) {
+	healthStatus := map[bool]string{true: "OK", false: "PROBLEM"}
+
+	isDbHealthy := server.store.IsHealthy()
+	isS3Healthy := server.s3Client.IsHealthy()
+
+	msg := fmt.Sprintf("s3 status: %s\ndatabase status: %s\n", healthStatus[isDbHealthy], healthStatus[isS3Healthy])
+
+	if isDbHealthy && isS3Healthy {
+		w.Write([]byte(msg))
+	} else {
+		http.Error(w, msg, http.StatusServiceUnavailable)
+	}
 }
